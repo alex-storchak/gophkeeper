@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "github.com/alex-storchak/gophkeeper/gen/proto/gophkeeper/v1;gophkeeperv1";
+
+import "google/protobuf/timestamp.proto";
+
+// DataService handles CRUD operations for user data.
+service DataService {
+  // Add creates a new data entry.
+  rpc Add(AddRequest) returns (AddResponse);
+  // Get retrieves a data entry by ID or title.
+  rpc Get(GetRequest) returns (GetResponse);
+  // List returns all data entries for the authenticated user.
+  rpc List(ListRequest) returns (ListResponse);
+  // Delete removes a data entry by ID or title.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+message AddRequest {
+  string data_type = 1;
+  string title = 2;
+  bytes encrypted_data = 3;
+  string metadata = 4;
+  bytes salt = 5;
+}
+
+message AddResponse {
+  int64 id = 1;
+}
+
+message GetRequest {
+  int64 id = 1;
+  string title = 2;
+}
+
+message GetResponse {
+  int64 id = 1;
+  string data_type = 2;
+  string title = 3;
+  bytes encrypted_data = 4;
+  string metadata = 5;
+  bytes salt = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListRequest {
+  string data_type = 1;
+}
+
+message ListResponse {
+  repeated DataEntrySummary entries = 1;
+}
+
+message DataEntrySummary {
+  int64 id = 1;
+  string data_type = 2;
+  string title = 3;
+  string metadata = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message DeleteRequest {
+  int64 id = 1;
+  string title = 2;
+}
+
+message DeleteResponse {}
+
+message ConflictInfo {
+  int64 id = 1;
+  string data_type = 2;
+  string title = 3;
+  string metadata = 4;
+  google.protobuf.Timestamp created_at = 5;
+}

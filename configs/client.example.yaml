@@ -1,0 +1,10 @@
+server_address: "localhost:50051"
+max_retries: 3
+session:
+  file: ".gophkeeper_session"
+  secret: ""
+tls:
+  ca_cert_file: "./cert/ca.crt"
+log:
+  level: "debug"
+  file: "client.log"
