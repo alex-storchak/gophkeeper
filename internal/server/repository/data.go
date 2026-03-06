@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,19 +66,37 @@ func (r *PgDataRepo) Create(ctx context.Context, entry *models.DataEntry) (model
 	return models.DataEntryID(id), nil
 }
 
+var dataEntryColumns = []string{
+	"de.id",
+	"dt.code",
+	"de.title",
+	"de.encrypted_data",
+	"de.salt",
+	"de.metadata",
+	"de.created_at",
+}
+var dataEntrySummaryColumns = []string{"de.id", "dt.code", "de.title", "de.metadata", "de.created_at"}
+
+func baseDataSelect(columns []string) sq.SelectBuilder {
+	return psql.
+		Select(columns...).
+		From("data_entries de").
+		Join("data_types dt ON dt.id = de.data_type_id")
+}
+
 func (r *PgDataRepo) GetByID(
 	ctx context.Context,
 	userID models.UserID,
 	entryID models.DataEntryID,
 ) (*models.DataEntry, error) {
-	q := `
-		SELECT de.id, dt.code, de.title, de.encrypted_data, de.salt, de.metadata, de.created_at
-		FROM data_entries de
-		JOIN data_types dt ON dt.id = de.data_type_id
-		WHERE de.id = $1
-		AND de.user_id = $2
-	`
-	return r.getOne(ctx, q, int64(entryID), int64(userID))
+	query, args, err := baseDataSelect(dataEntryColumns).
+		Where(sq.Eq{"de.id": int64(entryID)}).
+		Where(sq.Eq{"de.user_id": int64(userID)}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building get-by-id query: %w", err)
+	}
+	return r.getOne(ctx, query, args...)
 }
 
 func (r *PgDataRepo) GetByTitle(
@@ -85,14 +104,14 @@ func (r *PgDataRepo) GetByTitle(
 	userID models.UserID,
 	title string,
 ) (*models.DataEntry, error) {
-	q := `
-		SELECT de.id, dt.code, de.title, de.encrypted_data, de.salt, de.metadata, de.created_at
-		FROM data_entries de
-		JOIN data_types dt ON dt.id = de.data_type_id
-		WHERE de.title = $1
-		AND de.user_id = $2
-	`
-	return r.getOne(ctx, q, title, int64(userID))
+	query, args, err := baseDataSelect(dataEntryColumns).
+		Where(sq.Eq{"de.title": title}).
+		Where(sq.Eq{"de.user_id": int64(userID)}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building get-by-title query: %w", err)
+	}
+	return r.getOne(ctx, query, args...)
 }
 
 func (r *PgDataRepo) getOne(ctx context.Context, query string, args ...any) (*models.DataEntry, error) {
@@ -120,22 +139,21 @@ func (r *PgDataRepo) getOne(ctx context.Context, query string, args ...any) (*mo
 }
 
 func (r *PgDataRepo) List(ctx context.Context, userID models.UserID, dataType string) ([]models.DataEntrySummary, error) {
-	q := `
-		SELECT de.id, dt.code, de.title, de.metadata, de.created_at
-		FROM data_entries de
-		JOIN data_types dt ON dt.id = de.data_type_id
-		WHERE de.user_id = $1
-	`
-	args := []any{int64(userID)}
+	qb := baseDataSelect(dataEntrySummaryColumns).
+		Where(sq.Eq{"de.user_id": int64(userID)})
 
 	if dataType != "" {
-		q += ` AND dt.code = $2`
-		args = append(args, dataType)
+		qb = qb.Where(sq.Eq{"dt.code": dataType})
 	}
 
-	q += ` ORDER BY de.created_at DESC`
+	query, args, err := qb.
+		OrderBy("de.created_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building list query: %w", err)
+	}
 
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying data entries list: %w", err)
 	}
@@ -160,8 +178,16 @@ func (r *PgDataRepo) List(ctx context.Context, userID models.UserID, dataType st
 }
 
 func (r *PgDataRepo) DeleteByID(ctx context.Context, userID models.UserID, entryID models.DataEntryID) error {
-	q := `DELETE FROM data_entries WHERE id = $1 AND user_id = $2`
-	tag, err := r.pool.Exec(ctx, q, int64(entryID), int64(userID))
+	query, args, err := psql.
+		Delete("data_entries").
+		Where(sq.Eq{"id": int64(entryID)}).
+		Where(sq.Eq{"user_id": int64(userID)}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("building delete-by-id query: %w", err)
+	}
+
+	tag, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("deleting data entry by id: %w", err)
 	}
@@ -172,8 +198,16 @@ func (r *PgDataRepo) DeleteByID(ctx context.Context, userID models.UserID, entry
 }
 
 func (r *PgDataRepo) DeleteByTitle(ctx context.Context, userID models.UserID, title string) error {
-	q := `DELETE FROM data_entries WHERE title = $1 AND user_id = $2`
-	tag, err := r.pool.Exec(ctx, q, title, int64(userID))
+	query, args, err := psql.
+		Delete("data_entries").
+		Where(sq.Eq{"title": title}).
+		Where(sq.Eq{"user_id": int64(userID)}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("building delete-by-title query: %w", err)
+	}
+
+	tag, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("deleting data entry by title: %w", err)
 	}
@@ -190,14 +224,16 @@ func (r *PgDataRepo) GetSummaryByTitle(
 ) (*models.DataEntrySummary, error) {
 	var s models.DataEntrySummary
 	var id int64
-	q := `
-		SELECT de.id, dt.code, de.title, de.metadata, de.created_at
-		FROM data_entries de
-		JOIN data_types dt ON dt.id = de.data_type_id
-		WHERE de.title = $1 
-		AND de.user_id = $2
-	`
-	err := r.pool.QueryRow(ctx, q, title, int64(userID)).
+
+	query, args, err := baseDataSelect(dataEntrySummaryColumns).
+		Where(sq.Eq{"de.title": title}).
+		Where(sq.Eq{"de.user_id": int64(userID)}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building summary-by-title query: %w", err)
+	}
+
+	err = r.pool.QueryRow(ctx, query, args...).
 		Scan(&id, &s.DataType, &s.Title, &s.Metadata, &s.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

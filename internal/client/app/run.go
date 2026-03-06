@@ -21,9 +21,7 @@ func Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init logger: %w", err)
 	}
-	defer func() {
-		_ = closeLog()
-	}()
+	defer closeLog()
 
 	client, err := grpcclient.New(cfg, sl)
 	if err != nil {
