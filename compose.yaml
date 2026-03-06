@@ -1,0 +1,10 @@
+services:
+  db-gophkeeper:
+    image: postgres:16-bookworm
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: StrongPassword01-gophkeeper
+    volumes:
+      - ./data/pgdata-gophkeeper:/var/lib/postgresql/data
+    ports:
+      - "54323:5432"
